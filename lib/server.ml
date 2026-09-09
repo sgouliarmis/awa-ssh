@@ -90,14 +90,15 @@ type 'authie t = {
 
 let guard_msg t msg =
   let open Ssh in
-  match t.expect with
-  | None -> Ok ()
-  | Some MSG_DISCONNECT -> Ok ()
-  | Some MSG_IGNORE -> Ok ()
-  | Some MSG_DEBUG -> Ok ()
-  | Some id ->
-    let msgid = message_to_id msg in
-    guard (id = msgid) ("Unexpected message " ^ string_of_int (message_id_to_int msgid))
+  let msgid = message_to_id msg in
+  match msgid with
+  (* We may receive these at any time, whatever we are waiting for. *)
+  | MSG_DISCONNECT | MSG_IGNORE | MSG_DEBUG | MSG_UNIMPLEMENTED -> Ok ()
+  | _ ->
+    match t.expect with
+    | None -> Ok ()
+    | Some id ->
+      guard (id = msgid) ("Unexpected message " ^ string_of_int (message_id_to_int msgid))
 
 let host_key_algs key =
   List.filter Hostkey.(alg_matches (priv_to_typ key)) Hostkey.preferred_algs
@@ -385,6 +386,18 @@ let input_msg t msg now =
   let open Ssh in
   let* () = guard_msg t msg in
   match msg with
+  | Msg_ignore _ ->
+    Log.debug (fun m -> m "received ignore message, ignoring");
+    make_noreply t
+  | Msg_debug (always_display, message, lang) ->
+    (* RFC 4253 11.3: show it only if the peer asked us to. *)
+    Log.msg (if always_display then Logs.Info else Logs.Debug)
+      (fun m -> m "received debug message: %s (lang: %s)" message lang);
+    make_noreply t
+  | Msg_unimplemented seq ->
+    Log.warn (fun m -> m "received 'unimplemented' message: \
+                          peer did not understand our packet (seq: %lu)" seq);
+    make_noreply t
   | Msg_kexinit kex ->
     let* neg = Kex.negotiate ~s:t.server_kexinit ~c:kex in
     Logs.debug (fun m -> m "neg is %a" Kex.pp_negotiation neg);

@@ -395,6 +395,30 @@ let t_version () =
     test_ok
   | _ -> Error "Expected Ssh_version"
 
+let t_additional_messages () =
+  (* RFC 4253 11: ignore, debug and unimplemented may arrive at any time, so
+     they must not depend on what we are waiting for. *)
+  let t, _ = Server.make (Hostkey.Rsa_priv (Mirage_crypto_pk.Rsa.generate ~bits:2048 ())) in
+  assert (t.Server.expect = Some Ssh.MSG_VERSION);
+  let quietly_accepted msg =
+    match Server.input_msg t msg now with
+    | Ok (t', replies, event) ->
+      assert (replies = []);
+      assert (event = None);
+      (* None of them should fundamentally change our state. *)
+      assert (t'.Server.expect = t.Server.expect)
+    | Error e -> failwith ("expected " ^ Fmt.to_to_string Ssh.pp_message msg
+                           ^ " to be accepted, got " ^ e)
+  in
+  quietly_accepted (Ssh.Msg_ignore "chaff against traffic analysis");
+  quietly_accepted (Ssh.Msg_debug (true, "displayed", "en"));
+  quietly_accepted (Ssh.Msg_debug (false, "not displayed", ""));
+  quietly_accepted (Ssh.Msg_unimplemented 42l);
+
+  (* A message that really is out of turn is still refused. *)
+  assert (Result.is_error (Server.input_msg t (Ssh.Msg_newkeys) now));
+  test_ok
+
 let t_crypto () =
   let test keys =
     let txt = "abcdefghijklmnopqrstuvxz" in
@@ -650,6 +674,7 @@ let all_tests = [
   (t_openssh_pub, "OpenSSH public key format");
   (t_signature, "signatures");
   (t_ignore_next_packet, "ignore next packet");
+  (t_additional_messages, "ignore, debug and unimplemented");
   (t_channel_input, "channel data input");
   (t_channel_output, "channel data output");
   (* disabled: requires network connectivity

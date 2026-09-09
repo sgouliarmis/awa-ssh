@@ -449,8 +449,16 @@ let input_msg t msg now =
     Log.info (fun m -> m "ignoring unknown global request (want reply %B)"
                  want_reply);
     Ok (t, [], [])
-  | _, Msg_debug (_, msg, lang) ->
-    Log.info (fun m -> m "ignoring debug %s (lang %s)" msg lang);
+  | _, Msg_ignore _ ->
+    Log.debug (fun m -> m "received ignore message, ignoring");
+    Ok (t, [], [])
+  | _, Msg_debug (always_display, msg, lang) ->
+    Log.msg (if always_display then Logs.Info else Logs.Debug)
+      (fun m -> m "received debug message: %s (lang: %s)" msg lang);
+    Ok (t, [], [])
+  | _, Msg_unimplemented seq ->
+    Log.warn (fun m -> m "received 'unimplemented' message: \
+                          peer did not understand our packet (seq: %lu)" seq);
     Ok (t, [], [])
   | Established, Msg_channel_data (id, data) ->
     let* t, out, id, data = channel_data t id data in
