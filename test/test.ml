@@ -659,6 +659,44 @@ let t_ignore_next_packet () =
   assert (msg = Some message);
   test_ok
 
+let t_unknown_message () =
+  (* RFC 4253 11.4: an unrecognised message must be answered with
+     SSH_MSG_UNIMPLEMENTED carrying the sequence number of the packet that
+     brought it, and otherwise ignored. *)
+  assert (Ssh.int_to_message_id 200 = None);
+  let t, _ = Server.make (Hostkey.Rsa_priv (Mirage_crypto_pk.Rsa.generate ~bits:2048 ())) in
+  let t = Server.{ t with client_version = Some "SSH-2.0-client";
+                          expect = Some Ssh.MSG_KEXINIT }
+  in
+
+  (* Forge a packet carrying a message ID we do not know.  With plaintext
+     keys the payload starts at offset 5, right after the length and the
+     padding length. *)
+  let buf = Bytes.of_string (encrypt_plain (Ssh.Msg_ignore "never looked at")) in
+  Bytes.set_uint8 buf 5 200;
+  let t, msg, _ =
+    Result.get_ok (Server.pop_msg2 t (Bytes.unsafe_to_string buf))
+  in
+  let msg = get_some msg in
+  (match msg with
+   | Ssh.Msg_unknown 200 -> ()
+   | m -> failwith ("expected an unknown message, got "
+                    ^ Fmt.to_to_string Ssh.pp_message m));
+  let t', replies, event = Result.get_ok (Server.input_msg t msg now) in
+
+  (* It was the first packet we received, so sequence number zero. *)
+  assert (replies = [ Ssh.Msg_unimplemented Int32.zero ]);
+  assert (event = None);
+
+  (* And it did not change what message type we were waiting for. *)
+  assert (t'.Server.expect = Some Ssh.MSG_KEXINIT);
+
+  (* We should not be able to send one. *)
+  assert (match Wire.put_message (Buffer.create 16) (Ssh.Msg_unknown 200) with
+          | exception Invalid_argument _ -> true
+          | () -> false);
+  test_ok
+
 let t_channel_input () =
   let x = Channel.make_end Int32.zero Ssh.channel_win_len Ssh.channel_max_pkt_len in
   let c = Channel.make ~us:x ~them:x in
@@ -827,6 +865,7 @@ let all_tests = [
   (t_signature, "signatures");
   (t_ignore_next_packet, "ignore next packet");
   (t_additional_messages, "ignore, debug and unimplemented");
+  (t_unknown_message, "unknown message id");
   (t_channel_input, "channel data input");
   (t_channel_output, "channel data output");
   (* disabled: requires network connectivity

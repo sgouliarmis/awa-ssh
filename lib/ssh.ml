@@ -396,6 +396,7 @@ type message =
   | Msg_channel_success of int32
   | Msg_channel_failure of int32
   | Msg_version of string       (* Mocked version *)
+  | Msg_unknown of int
 
 let message_to_id = function
   | Msg_disconnect _               -> MSG_DISCONNECT
@@ -440,6 +441,8 @@ let message_to_id = function
   | Msg_channel_success _          -> MSG_CHANNEL_SUCCESS
   | Msg_channel_failure _          -> MSG_CHANNEL_FAILURE
   | Msg_version _                  -> MSG_VERSION
+  | Msg_unknown _ ->
+    invalid_arg "trying to lookup ID of unknown message type"
 
 let pp_lang ppf lang =
   if lang = "" then () else Fmt.pf ppf "(lang %s)" lang
@@ -449,6 +452,7 @@ let pp_message ppf = function
     Fmt.pf ppf "disconnect %s %s%a" (disconnect_code_to_string code) desc
       pp_lang lang
   | Msg_ignore d -> Fmt.pf ppf "ignore %s" d
+  | Msg_unknown id -> Fmt.pf ppf "unknown message with ID %d" id
   | Msg_unimplemented y -> Fmt.pf ppf "unimplemented %lu" y
   | Msg_debug (display, msg, lang) ->
     Fmt.pf ppf "debug (display %B) %s%a" display msg pp_lang lang

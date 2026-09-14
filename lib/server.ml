@@ -90,11 +90,13 @@ type 'authie t = {
 
 let guard_msg t msg =
   let open Ssh in
-  let msgid = message_to_id msg in
-  match msgid with
-  (* We may receive these at any time, whatever we are waiting for. *)
-  | MSG_DISCONNECT | MSG_IGNORE | MSG_DEBUG | MSG_UNIMPLEMENTED -> Ok ()
+  match msg with
+  (* We may receive these at any time, whatever we are waiting for.  Even
+     messages with an unknown ID must be replied to: RFC 4253 §11.4. *)
+  | Msg_disconnect _ | Msg_ignore _ | Msg_debug _ | Msg_unimplemented _
+  | Msg_unknown _ -> Ok ()
   | _ ->
+    let msgid = message_to_id msg in
     match t.expect with
     | None -> Ok ()
     | Some id ->
@@ -415,6 +417,11 @@ let input_msg t msg now =
   let open Ssh in
   let* () = guard_msg t msg in
   match msg with
+  | Msg_unknown id ->
+    let seq = Int32.pred t.keys_ctos.Kex.seq in
+    Log.warn (fun m -> m "received message with unknown ID %d (seq: %lu), \
+                          replying that it is unimplemented" id seq);
+    make_reply t (Msg_unimplemented seq)
   | Msg_ignore _ ->
     Log.debug (fun m -> m "received ignore message, ignoring");
     make_noreply t

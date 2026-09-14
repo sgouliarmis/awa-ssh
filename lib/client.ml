@@ -466,6 +466,11 @@ let input_msg t msg now =
        and we do not implement it yet. *)
     let msgs = if want_reply then [ Ssh.Msg_request_failure ] else [] in
     Ok (t, msgs, [])
+  | _, Msg_unknown id ->
+    let seq = Int32.pred t.keys_ctos.Kex.seq in
+    Log.warn (fun m -> m "received message with unknown ID %d (seq: %lu), \
+                          replying that it is unimplemented" id seq);
+    Ok (t, [ Msg_unimplemented seq ], [])
   | _, Msg_ignore _ ->
     Log.debug (fun m -> m "received ignore message, ignoring");
     Ok (t, [], [])
